@@ -3,20 +3,53 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"sync"
+	"time"
+
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
-	"log"
-	"time"
 )
 
-// NodeInfo stores information about a blockchain node subscription
-type NodeInfo struct {
-	URL         string
-	LatestBlock *types.Header
-	ReceiveTime time.Time
+var (
+	firstBlockTimes = struct {
+		sync.Mutex
+		Times map[string]time.Time
+	}{Times: make(map[string]time.Time)}
+)
+
+type NodeStatistics struct {
+	URL             string
+	TotalDelay      time.Duration
+	ProcessedBlocks map[string]struct{} // Set of blocks that have been processed
+	mutex           sync.Mutex
 }
 
-func subscribeToNode(url string, headersChan chan *types.Header, errChan chan error) {
+func (ns *NodeStatistics) UpdateDelay(blockHash string, blockNumber uint64, receivedTime time.Time) {
+	ns.mutex.Lock()
+	defer ns.mutex.Unlock()
+
+	// Check if the block has already been processed for this node
+	if _, exists := ns.ProcessedBlocks[blockHash]; exists {
+		return // Block already processed, ignore it
+	}
+	ns.ProcessedBlocks[blockHash] = struct{}{}
+
+	firstBlockTimes.Lock()
+	firstTime, exists := firstBlockTimes.Times[blockHash]
+	if !exists {
+		firstBlockTimes.Times[blockHash] = receivedTime
+		firstBlockTimes.Unlock()
+		fmt.Printf("Node: %s, Block: %s [%d], First receive\n", ns.URL, blockHash, blockNumber)
+	} else {
+		firstBlockTimes.Unlock()
+		delay := receivedTime.Sub(firstTime)
+		ns.TotalDelay += delay
+		fmt.Printf("Node: %s, Block: %s [%d], Delay: %s, Total Delay: %s\n", ns.URL, blockHash, blockNumber, delay, ns.TotalDelay)
+	}
+}
+
+func subscribeToNode(url string, stats *NodeStatistics, headersChan chan *types.Header, errChan chan error) {
 	client, err := ethclient.Dial(url)
 	if err != nil {
 		errChan <- err
@@ -35,21 +68,32 @@ func subscribeToNode(url string, headersChan chan *types.Header, errChan chan er
 			errChan <- err
 			return
 		case header := <-headersChan:
-			fmt.Printf("New block from %s: %s at %v\n", url, header.Hash().Hex(), time.Now())
+			receivedTime := time.Now()
+			blockHash := header.Hash().Hex()
+			blockNumber := header.Number.Uint64()
+			stats.UpdateDelay(blockHash, blockNumber, receivedTime)
 		}
 	}
 }
 
 func main() {
 	nodes := []string{
-		"wss://ropsten.infura.io/ws",
+		"wss://base.gateway.tenderly.co",
+		"wss://base-rpc.publicnode.com",
+		"wss://base-mainnet.g.alchemy.com/v2/K1SeWBita0JiyCpo9JaydfB9z-nmG87x",
 	}
 
 	headersChan := make(chan *types.Header)
 	errChan := make(chan error)
+	statsMap := make(map[string]*NodeStatistics)
 
 	for _, nodeURL := range nodes {
-		go subscribeToNode(nodeURL, headersChan, errChan)
+		stats := &NodeStatistics{
+			URL:             nodeURL,
+			ProcessedBlocks: make(map[string]struct{}),
+		}
+		statsMap[nodeURL] = stats
+		go subscribeToNode(nodeURL, stats, headersChan, errChan)
 	}
 
 	for {
