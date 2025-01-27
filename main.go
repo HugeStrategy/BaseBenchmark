@@ -44,7 +44,7 @@ func (ns *NodeStatistics) UpdateDelay(blockHash string, blockNumber uint64, rece
 	if !exists {
 		firstBlockTimes.Times[blockHash] = receivedTime
 		firstBlockTimes.Unlock()
-		fmt.Printf("Node: %s, Block: %s [%d], First receive, Total Blocks: %d\n", ns.URL, blockHash, blockNumber, ns.TotalBlocksReceived)
+		fmt.Printf("Node: %s, Block: %s [%d], First receive, Total Delay: %s, Total Blocks: %d\n", ns.URL, blockHash, blockNumber, ns.TotalDelay, ns.TotalBlocksReceived)
 	} else {
 		firstBlockTimes.Unlock()
 		delay := receivedTime.Sub(firstTime)
