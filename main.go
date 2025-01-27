@@ -19,15 +19,19 @@ var (
 )
 
 type NodeStatistics struct {
-	URL             string
-	TotalDelay      time.Duration
-	ProcessedBlocks map[string]struct{} // Set of blocks that have been processed
-	mutex           sync.Mutex
+	URL                 string
+	TotalDelay          time.Duration
+	TotalBlocksReceived int                 // Total number of blocks received by this node
+	ProcessedBlocks     map[string]struct{} // Set of blocks that have been processed
+	mutex               sync.Mutex
 }
 
 func (ns *NodeStatistics) UpdateDelay(blockHash string, blockNumber uint64, receivedTime time.Time) {
 	ns.mutex.Lock()
 	defer ns.mutex.Unlock()
+
+	// Increment the total blocks received
+	ns.TotalBlocksReceived++
 
 	// Check if the block has already been processed for this node
 	if _, exists := ns.ProcessedBlocks[blockHash]; exists {
@@ -40,12 +44,12 @@ func (ns *NodeStatistics) UpdateDelay(blockHash string, blockNumber uint64, rece
 	if !exists {
 		firstBlockTimes.Times[blockHash] = receivedTime
 		firstBlockTimes.Unlock()
-		fmt.Printf("Node: %s, Block: %s [%d], First receive\n", ns.URL, blockHash, blockNumber)
+		fmt.Printf("Node: %s, Block: %s [%d], First receive, Total Blocks: %d\n", ns.URL, blockHash, blockNumber, ns.TotalBlocksReceived)
 	} else {
 		firstBlockTimes.Unlock()
 		delay := receivedTime.Sub(firstTime)
 		ns.TotalDelay += delay
-		fmt.Printf("Node: %s, Block: %s [%d], Delay: %s, Total Delay: %s\n", ns.URL, blockHash, blockNumber, delay, ns.TotalDelay)
+		fmt.Printf("Node: %s, Block: %s [%d], Delay: %s, Total Delay: %s, Total Blocks: %d\n", ns.URL, blockHash, blockNumber, delay, ns.TotalDelay, ns.TotalBlocksReceived)
 	}
 }
 
